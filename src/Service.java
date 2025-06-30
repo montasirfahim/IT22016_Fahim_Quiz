@@ -1,0 +1,316 @@
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.layout.*;
+import javafx.stage.Stage;
+import javafx.event.ActionEvent;
+import javafx.util.Duration;
+import java.sql.*;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+
+public class Service extends Application {
+    private StackPane mainPane;
+    private TableView<Result> tableView;
+    Button quizStart;
+    private Label timerLabel;
+    private Timeline timeline;
+    private int timeRemaining = 90;
+    private List<Quiz> questionList;
+    private List<ToggleGroup> answerGroups;
+    private long startTime;
+    Button exitBtn, resetBtn, submitBtn;
+
+    private AnchorPane homePane, quizPane;
+    public void start(Stage primaryStage) {
+        mainPane = new StackPane();
+        setupHomePane();
+        setupQuizPane();
+
+        mainPane.getChildren().add(homePane);
+        primaryStage.setTitle("Quiz Test");
+        primaryStage.setScene(new Scene(mainPane, 1000, 600));
+        primaryStage.show();
+    }
+
+    private void setupHomePane() {
+        homePane = new AnchorPane();
+        homePane.setPadding(new Insets(20));
+        homePane.setStyle("-fx-background-color: lightblue;");
+
+        Label homeLabel = new Label("Welcome to Quiz Test App");
+        homeLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: bold; -fx-font-family: Arial;");
+        homeLabel.setLayoutX(400);
+        homeLabel.setLayoutY(20);
+
+        quizStart = new Button("Start Quiz");
+        quizStart.setLayoutX(445);
+        quizStart.setLayoutY(100);
+        styleGreenButton(quizStart);
+        quizStart.setOnAction(this::handleAction);
+
+        Label leaderboard = new Label("Leaderboard: ");
+        leaderboard.setStyle("-fx-font-size: 15px; -fx-font-weight: bold; -fx-font-family: Arial;");
+        leaderboard.setLayoutX(120);
+        leaderboard.setLayoutY(160);
+
+        tableView = new TableView<>();
+
+        TableColumn<Result, String> nameCol = new TableColumn<>("Name");
+        nameCol.setCellValueFactory(new PropertyValueFactory<>("name"));
+
+        TableColumn<Result, Integer> marksCol = new TableColumn<>("Marks");
+        marksCol.setCellValueFactory(new PropertyValueFactory<>("marks"));
+
+        TableColumn<Result, Double> timeCol = new TableColumn<>("Taken Time (Minute)");
+        timeCol.setCellValueFactory(new PropertyValueFactory<>("takenTime"));
+
+        tableView.getColumns().addAll(nameCol, marksCol, timeCol);
+        //tableView.setPrefHeight(150);
+        tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+        tableView.setLayoutX(290);
+        tableView.setLayoutY(200);
+        nameCol.setPrefWidth(200);
+        marksCol.setPrefWidth(100);
+        timeCol.setPrefWidth(160);
+
+        tableView.setPlaceholder(new Label("No data available"));
+
+        loadLeaderBoard();
+
+        homePane.getChildren().addAll(homeLabel, quizStart, leaderboard, tableView);
+
+    }
+
+    private void setupQuizPane() {
+        quizPane = new AnchorPane();
+        quizPane.setStyle("-fx-background-color: #F5F5F5;");
+        quizPane.setPadding(new Insets(20));
+
+        // Timer label
+        timerLabel = new Label("Time: 2:30");
+        timerLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
+        AnchorPane.setTopAnchor(timerLabel, 10.0);
+        AnchorPane.setRightAnchor(timerLabel, 20.0);
+
+        VBox quizBox = new VBox(15);
+        quizBox.setPadding(new Insets(50, 20, 20, 20));
+
+        answerGroups = new ArrayList<>();
+
+        // Load questions from DB
+        questionList = fetchRandomQuestions();
+
+        for (Quiz q : questionList) {
+            Label qLabel = new Label(q.ques);
+            qLabel.setWrapText(true);
+            qLabel.setStyle("-fx-font-weight: bold;");
+
+            ToggleGroup group = new ToggleGroup();
+            RadioButton rb1 = new RadioButton(q.op1);
+            RadioButton rb2 = new RadioButton(q.op2);
+            RadioButton rb3 = new RadioButton(q.op3);
+
+            rb1.setToggleGroup(group);
+            rb2.setToggleGroup(group);
+            rb3.setToggleGroup(group);
+
+            VBox qPane = new VBox(5, qLabel, rb1, rb2, rb3);
+            qPane.setStyle("-fx-padding: 10; -fx-border-color: gray; -fx-border-radius: 5;");
+            quizBox.getChildren().add(qPane);
+            answerGroups.add(group);
+        }
+
+        // Buttons
+        exitBtn = new Button("Exit");
+        resetBtn = new Button("Reset");
+        submitBtn = new Button("Submit");
+
+        exitBtn.setOnAction(this::handleAction);
+        resetBtn.setOnAction(this::handleAction);
+        submitBtn.setOnAction(e -> submitQuiz());
+
+        HBox buttons = new HBox(20, exitBtn, resetBtn, submitBtn);
+        buttons.setAlignment(Pos.CENTER);
+        quizBox.getChildren().add(buttons);
+
+        ScrollPane scrollPane = new ScrollPane(quizBox);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setPrefViewportHeight(500);
+
+        quizPane.getChildren().addAll(scrollPane, timerLabel);
+
+        AnchorPane.setTopAnchor(scrollPane, 0.0);
+        AnchorPane.setBottomAnchor(scrollPane, 0.0);
+        AnchorPane.setLeftAnchor(scrollPane, 0.0);
+        AnchorPane.setRightAnchor(scrollPane, 0.0);
+
+        startTimer();
+    }
+
+
+    private void loadLeaderBoard(){
+        tableView.getItems().clear();
+        try(Connection conn = Database.getConnection()) {
+            Statement stmt = conn.createStatement();
+            ResultSet rs = stmt.executeQuery("SELECT * FROM quiz_result order by marks desc, time asc");
+            int row = 0;
+            while(rs.next()) {
+                String name = rs.getString("stuname");
+                int marks = rs.getInt("marks");
+                double time = rs.getDouble("time");
+
+                tableView.getItems().add(new Result(name, marks, time));
+                row++;
+            }
+            double rowHeight = 25;
+            double headerHeight = 30;
+            tableView.setPrefHeight(headerHeight + (row * rowHeight));
+
+            rs.close();
+            stmt.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void startTimer() {
+        timeRemaining = 90;
+        startTime = System.currentTimeMillis();
+        timeline = new Timeline(new KeyFrame(Duration.seconds(1), e -> {
+            timeRemaining--;
+            int min = timeRemaining / 60;
+            int sec = timeRemaining % 60;
+            timerLabel.setText(String.format("Time Remaining: %d:%02d", min, sec));
+
+            if (timeRemaining <= 0) {
+                timeline.stop();
+                submitQuiz();
+            }
+        }));
+        timeline.setCycleCount(timeRemaining);
+        timeline.play();
+    }
+
+    private List<Quiz> fetchRandomQuestions() {
+        List<Quiz> list = new ArrayList<>();
+        try (Connection conn = Database.getConnection()) {
+            Statement stmt = conn.createStatement();
+            ResultSet rs = stmt.executeQuery("SELECT * FROM quiz_ques ORDER BY RAND() LIMIT 5");
+            while (rs.next()) {
+                list.add(new Quiz(
+                        rs.getInt("qid"),
+                        rs.getString("ques"),
+                        rs.getString("op1"),
+                        rs.getString("op2"),
+                        rs.getString("op3"),
+                        rs.getInt("ans")
+                ));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return list;
+    }
+
+
+    private void submitQuiz() {
+        timeline.stop(); // stop timer
+
+        int correct = 0;
+        for (int i = 0; i < questionList.size(); i++) {
+            ToggleGroup group = answerGroups.get(i);
+            int correctAns = questionList.get(i).correctOption;
+
+            // Reset all radio buttons' styles first
+            for (Toggle toggle : group.getToggles()) {
+                RadioButton rb = (RadioButton) toggle;
+                rb.setStyle("-fx-background-color: transparent; -fx-text-fill: black;");
+            }
+
+            // Mark correct option as green text
+            RadioButton correctBtn = (RadioButton) group.getToggles().get(correctAns - 1);
+            correctBtn.setStyle("-fx-text-fill: green;");
+
+            Toggle selected = group.getSelectedToggle();
+            if (selected != null) {
+                RadioButton selectedBtn = (RadioButton) selected;
+                String selectedText = selectedBtn.getText();
+
+                String correctOption = switch (correctAns) {
+                    case 1 -> questionList.get(i).op1;
+                    case 2 -> questionList.get(i).op2;
+                    case 3 -> questionList.get(i).op3;
+                    default -> "";
+                };
+
+                if (selectedText.equals(correctOption)) {
+                    correct++;
+                }
+                else{
+                    selectedBtn.setStyle("-fx-background-color: red; -fx-text-fill: white;");
+                }
+                // No red marking for wrong answers as per your request
+            }
+        }
+    //selectedBtn.setStyle("-fx-background-color: red; -fx-text-fill: white;");
+        double totalTimeTaken = (System.currentTimeMillis() - startTime) / 1000.0;
+
+        int finalCorrect = correct;
+        Platform.runLater(() -> {
+            TextInputDialog nameDialog = new TextInputDialog();
+            nameDialog.setHeaderText("Enter your name to see your score:");
+            Optional<String> result = nameDialog.showAndWait();
+            result.ifPresent(name -> saveResultToDB(name, finalCorrect, totalTimeTaken));
+
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("Quiz Result");
+            alert.setHeaderText("You scored: " + finalCorrect + " out of " + questionList.size());
+            alert.setContentText("Correct options are marked in green.\nTime taken: " + totalTimeTaken + " seconds.");
+            alert.show();
+        });
+
+    }
+
+    private void saveResultToDB(String name, int marks, double time) {
+        try (Connection conn = Database.getConnection()) {
+            PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO quiz_result(stuname, marks, time) VALUES (?, ?, ?)");
+            ps.setString(1, name);
+            ps.setInt(2, marks);
+            ps.setDouble(3, time);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+
+    private void handleAction(ActionEvent event){
+        if(event.getSource() == quizStart){
+            mainPane.getChildren().addAll(quizPane);
+        }
+        else if(event.getSource() == exitBtn){
+            mainPane.getChildren().addAll(homePane);
+        }
+        else if(event.getSource() == resetBtn){
+            mainPane.getChildren().addAll(homePane);
+        }
+    }
+
+    private void styleGreenButton(Button button){
+        button.setStyle("-fx-background-color: #04AA6D; -fx-pref-width: 100; -fx-text-fill: white; -fx-font-weight:bold; -fx-font-size: 14px; -fx-padding: 10px;");
+    }
+}
