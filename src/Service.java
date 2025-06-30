@@ -312,8 +312,10 @@ public class Service extends Application {
         else if(event.getSource() == resetBtn){
             mainPane.getChildren().clear();
             if(timeline != null) timeline.stop();
-            loadLeaderBoard();
-            mainPane.getChildren().addAll(homePane);
+            //loadLeaderBoard();
+            mainPane.getChildren().clear();
+            setupQuizPane();
+            mainPane.getChildren().addAll(quizPane);
             submitCount = 0;
             timeRemaining = 92;
         }
