@@ -26,17 +26,17 @@ public class Service extends Application {
     Button quizStart;
     private Label timerLabel;
     private Timeline timeline;
-    private int timeRemaining = 90;
+    private int timeRemaining = 92; // 1.5 minutes++
     private List<Quiz> questionList;
     private List<ToggleGroup> answerGroups;
-    private long startTime;
+    private long startTime, submitCount = 0;
     Button exitBtn, resetBtn, submitBtn;
 
     private AnchorPane homePane, quizPane;
     public void start(Stage primaryStage) {
         mainPane = new StackPane();
         setupHomePane();
-        setupQuizPane();
+        //setupQuizPane();
 
         mainPane.getChildren().add(homePane);
         primaryStage.setTitle("Quiz Test");
@@ -70,10 +70,10 @@ public class Service extends Application {
         TableColumn<Result, String> nameCol = new TableColumn<>("Name");
         nameCol.setCellValueFactory(new PropertyValueFactory<>("name"));
 
-        TableColumn<Result, Integer> marksCol = new TableColumn<>("Marks");
+        TableColumn<Result, Integer> marksCol = new TableColumn<>("Score");
         marksCol.setCellValueFactory(new PropertyValueFactory<>("marks"));
 
-        TableColumn<Result, Double> timeCol = new TableColumn<>("Taken Time (Minute)");
+        TableColumn<Result, Double> timeCol = new TableColumn<>("Taken Time (Second)");
         timeCol.setCellValueFactory(new PropertyValueFactory<>("takenTime"));
 
         tableView.getColumns().addAll(nameCol, marksCol, timeCol);
@@ -99,7 +99,7 @@ public class Service extends Application {
         quizPane.setPadding(new Insets(20));
 
         // Timer label
-        timerLabel = new Label("Time: 2:30");
+        timerLabel = new Label("Time: 1:30");
         timerLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
         AnchorPane.setTopAnchor(timerLabel, 10.0);
         AnchorPane.setRightAnchor(timerLabel, 20.0);
@@ -109,7 +109,7 @@ public class Service extends Application {
 
         answerGroups = new ArrayList<>();
 
-        // Load questions from DB
+        //fetch ques from db
         questionList = fetchRandomQuestions();
 
         for (Quiz q : questionList) {
@@ -132,7 +132,6 @@ public class Service extends Application {
             answerGroups.add(group);
         }
 
-        // Buttons
         exitBtn = new Button("Exit");
         resetBtn = new Button("Reset");
         submitBtn = new Button("Submit");
@@ -186,7 +185,7 @@ public class Service extends Application {
     }
 
     private void startTimer() {
-        timeRemaining = 90;
+        timeRemaining = 92;
         startTime = System.currentTimeMillis();
         timeline = new Timeline(new KeyFrame(Duration.seconds(1), e -> {
             timeRemaining--;
@@ -226,20 +225,19 @@ public class Service extends Application {
 
 
     private void submitQuiz() {
-        timeline.stop(); // stop timer
-
+        if(submitCount > 0) return;
+        timeline.stop();
+        submitCount++;
         int correct = 0;
         for (int i = 0; i < questionList.size(); i++) {
             ToggleGroup group = answerGroups.get(i);
             int correctAns = questionList.get(i).correctOption;
 
-            // Reset all radio buttons' styles first
             for (Toggle toggle : group.getToggles()) {
                 RadioButton rb = (RadioButton) toggle;
                 rb.setStyle("-fx-background-color: transparent; -fx-text-fill: black;");
             }
 
-            // Mark correct option as green text
             RadioButton correctBtn = (RadioButton) group.getToggles().get(correctAns - 1);
             correctBtn.setStyle("-fx-text-fill: green;");
 
@@ -259,14 +257,13 @@ public class Service extends Application {
                     correct++;
                 }
                 else{
-                    selectedBtn.setStyle("-fx-background-color: red; -fx-text-fill: white;");
+                    selectedBtn.setStyle("-fx-background-color: yellow; -fx-text-fill: red;");
                 }
-                // No red marking for wrong answers as per your request
             }
         }
     //selectedBtn.setStyle("-fx-background-color: red; -fx-text-fill: white;");
-        double totalTimeTaken = (System.currentTimeMillis() - startTime) / 1000.0;
-
+        double totalTimeTaken = ((System.currentTimeMillis() - startTime) / 1000.0);
+        double timeTakenMinute = Math.round(totalTimeTaken * 100.00) / 100.00;
         int finalCorrect = correct;
         Platform.runLater(() -> {
             TextInputDialog nameDialog = new TextInputDialog();
@@ -296,17 +293,29 @@ public class Service extends Application {
         }
     }
 
-
-
     private void handleAction(ActionEvent event){
         if(event.getSource() == quizStart){
+            mainPane.getChildren().clear();
+            if (timeline != null) timeline.stop();
+            setupQuizPane();
+            //mainPane.getChildren().add(quizPane);
             mainPane.getChildren().addAll(quizPane);
         }
         else if(event.getSource() == exitBtn){
+            mainPane.getChildren().clear();
+            if(timeline != null) timeline.stop();
+            loadLeaderBoard();
             mainPane.getChildren().addAll(homePane);
+            submitCount = 0;
+            timeRemaining = 92;
         }
         else if(event.getSource() == resetBtn){
+            mainPane.getChildren().clear();
+            if(timeline != null) timeline.stop();
+            loadLeaderBoard();
             mainPane.getChildren().addAll(homePane);
+            submitCount = 0;
+            timeRemaining = 92;
         }
     }
 
