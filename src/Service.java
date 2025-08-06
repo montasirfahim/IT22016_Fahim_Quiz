@@ -27,8 +27,9 @@ public class Service extends Application {
     private Label timerLabel;
     private Timeline timeline;
     private int timeRemaining = 92; // 1.5 minutes++
-    private List<Quiz> questionList;
+    private List<Ques> questionList;
     private List<ToggleGroup> answerGroups;
+    private List<Integer> correctAnswers;
     private long startTime, submitCount = 0;
     Button exitBtn, resetBtn, submitBtn;
 
@@ -98,7 +99,6 @@ public class Service extends Application {
         quizPane.setStyle("-fx-background-color: #F5F5F5;");
         quizPane.setPadding(new Insets(20));
 
-        // Timer label
         timerLabel = new Label("Time: 1:30");
         timerLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
         AnchorPane.setTopAnchor(timerLabel, 10.0);
@@ -108,11 +108,14 @@ public class Service extends Application {
         quizBox.setPadding(new Insets(50, 20, 20, 20));
 
         answerGroups = new ArrayList<>();
+        correctAnswers = new ArrayList<>(); // <-- Add this list to track correct answers
 
-        //fetch ques from db
-        questionList = fetchRandomQuestions();
+        questionList = List.of(
+                new Ques("নিচের কোনটি বিশেষ্য পদ?", "লাল", "দৌড়ানো", "ছাত্র", "দ্রুত", 3),
+                new Ques("নিচের কোনটি ক্রিয়া পদ?", "খাওয়া", "লাল", "সুন্দর", "ছাত্র", 1)
+        );
 
-        for (Quiz q : questionList) {
+        for (Ques q : questionList) {
             Label qLabel = new Label(q.ques);
             qLabel.setWrapText(true);
             qLabel.setStyle("-fx-font-weight: bold;");
@@ -121,17 +124,21 @@ public class Service extends Application {
             RadioButton rb1 = new RadioButton(q.op1);
             RadioButton rb2 = new RadioButton(q.op2);
             RadioButton rb3 = new RadioButton(q.op3);
+            RadioButton rb4 = new RadioButton(q.op4);
 
             rb1.setToggleGroup(group);
             rb2.setToggleGroup(group);
             rb3.setToggleGroup(group);
+            rb4.setToggleGroup(group);
 
-            VBox qPane = new VBox(5, qLabel, rb1, rb2, rb3);
+            VBox qPane = new VBox(5, qLabel, rb1, rb2, rb3, rb4);
             qPane.setStyle("-fx-padding: 10; -fx-border-color: gray; -fx-border-radius: 5;");
             quizBox.getChildren().add(qPane);
             answerGroups.add(group);
+            correctAnswers.add(q.ans); // Store correct answer (1–4)
         }
 
+        // Buttons
         exitBtn = new Button("Exit");
         resetBtn = new Button("Reset");
         submitBtn = new Button("Submit");
@@ -202,83 +209,84 @@ public class Service extends Application {
         timeline.play();
     }
 
-    private List<Quiz> fetchRandomQuestions() {
-        List<Quiz> list = new ArrayList<>();
-        try (Connection conn = Database.getConnection()) {
-            Statement stmt = conn.createStatement();
-            ResultSet rs = stmt.executeQuery("SELECT * FROM quiz_ques ORDER BY RAND() LIMIT 5");
-            while (rs.next()) {
-                list.add(new Quiz(
-                        rs.getInt("qid"),
-                        rs.getString("ques"),
-                        rs.getString("op1"),
-                        rs.getString("op2"),
-                        rs.getString("op3"),
-                        rs.getInt("ans")
-                ));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return list;
-    }
+//    private List<Quiz> fetchRandomQuestions() {
+//        List<Quiz> list = new ArrayList<>();
+//        try (Connection conn = Database.getConnection()) {
+//            Statement stmt = conn.createStatement();
+//            ResultSet rs = stmt.executeQuery("SELECT * FROM quiz_ques ORDER BY RAND() LIMIT 5");
+//            while (rs.next()) {
+//                list.add(new Quiz(
+//                        rs.getInt("qid"),
+//                        rs.getString("ques"),
+//                        rs.getString("op1"),
+//                        rs.getString("op2"),
+//                        rs.getString("op3"),
+//                        rs.getInt("ans")
+//                ));
+//            }
+//        } catch (SQLException e) {
+//            e.printStackTrace();
+//        }
+//        return list;
+//    }
 
 
     private void submitQuiz() {
-        if(submitCount > 0) return;
-        timeline.stop();
+        if (submitCount > 0) return;
+        timeline.stop(); // Assuming you have a timer
         submitCount++;
+
         int correct = 0;
+
         for (int i = 0; i < questionList.size(); i++) {
             ToggleGroup group = answerGroups.get(i);
-            int correctAns = questionList.get(i).correctOption;
+            Ques q = questionList.get(i);
+            int correctAns = q.ans;
 
+            // Reset all buttons' styles first
             for (Toggle toggle : group.getToggles()) {
                 RadioButton rb = (RadioButton) toggle;
                 rb.setStyle("-fx-background-color: transparent; -fx-text-fill: black;");
             }
 
+            // Highlight the correct answer in green
             RadioButton correctBtn = (RadioButton) group.getToggles().get(correctAns - 1);
             correctBtn.setStyle("-fx-text-fill: green;");
 
             Toggle selected = group.getSelectedToggle();
             if (selected != null) {
                 RadioButton selectedBtn = (RadioButton) selected;
-                String selectedText = selectedBtn.getText();
+                int selectedIndex = group.getToggles().indexOf(selectedBtn);
 
-                String correctOption = switch (correctAns) {
-                    case 1 -> questionList.get(i).op1;
-                    case 2 -> questionList.get(i).op2;
-                    case 3 -> questionList.get(i).op3;
-                    default -> "";
-                };
-
-                if (selectedText.equals(correctOption)) {
+                if (selectedIndex == correctAns - 1) {
                     correct++;
-                }
-                else{
+                } else {
+                    // Wrong answer — style it red
                     selectedBtn.setStyle("-fx-background-color: yellow; -fx-text-fill: red;");
                 }
             }
         }
-    //selectedBtn.setStyle("-fx-background-color: red; -fx-text-fill: white;");
+
+        // Calculate and format time taken
         double totalTimeTaken = ((System.currentTimeMillis() - startTime) / 1000.0);
         double timeTakenMinute = Math.round(totalTimeTaken * 100.00) / 100.00;
         int finalCorrect = correct;
+
         Platform.runLater(() -> {
             TextInputDialog nameDialog = new TextInputDialog();
             nameDialog.setHeaderText("Enter your name to see your score:");
             Optional<String> result = nameDialog.showAndWait();
+
             result.ifPresent(name -> saveResultToDB(name, finalCorrect, totalTimeTaken));
 
             Alert alert = new Alert(Alert.AlertType.INFORMATION);
             alert.setTitle("Quiz Result");
             alert.setHeaderText("You scored: " + finalCorrect + " out of " + questionList.size());
-            alert.setContentText("Correct options are marked in green.\nTime taken: " + totalTimeTaken + " seconds.");
+            alert.setContentText("Correct options are marked in green.\nWrong choices are marked in red.\nTime taken: " + totalTimeTaken + " seconds.");
             alert.show();
         });
-
     }
+
 
     private void saveResultToDB(String name, int marks, double time) {
         try (Connection conn = Database.getConnection()) {
